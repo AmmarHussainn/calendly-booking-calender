@@ -67,10 +67,10 @@ async getAvailability(eventTypeUri, dateInput, timezone = 'UTC') {
       url: `${process.env.BASE_URL}/webhooks/confirmations`,
       events: ['invitee.created'],
       scope: 'user',
-      organization: null,
-      user: null,
+      organization: "https://api.calendly.com/organizations/83f76f79-af59-4f64-9ce7-d6f78ff862a9",
+      user: "https://api.calendly.com/users/471265af-302d-42f8-971c-9a37cbd68753",
       signing_key: process.env.CALENDLY_WEBHOOK_SIGNING_KEY,
-      metadata: { eventUuid, email }
+      // metadata: { eventUuid, email }
     });
   }
 

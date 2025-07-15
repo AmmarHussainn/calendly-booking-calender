@@ -1,6 +1,6 @@
 const chrono = require('chrono-node');
 const { format, addHours } = require('date-fns');
-const { utcToZonedTime, zonedTimeToUtc } = require('date-fns-tz');
+const { toZonedTime, fromZonedTime } = require('date-fns-tz');
 
 function parseNaturalDate(input, timezone = 'UTC') {
   const referenceDate = new Date();
@@ -16,15 +16,31 @@ function parseNaturalDate(input, timezone = 'UTC') {
   }
   
   // Convert to the specified timezone
-  const zonedDate = utcToZonedTime(date, timezone);
+  console.log(date, timezone);
+  const zonedDate = toZonedTime(date, timezone);
   
   return {
-    iso: zonedTimeToUtc(zonedDate, timezone).toISOString(),
+    iso: fromZonedTime(zonedDate, timezone).toISOString(),
     local: format(zonedDate, 'yyyy-MM-dd HH:mm'),
     timezone
   };
 }
 
+function validateFutureDate(date) {
+  if (!(date instanceof Date) || isNaN(date.getTime())) {
+    throw new Error('Invalid date object');
+  }
+
+  const now = new Date();
+
+  if (date <= now) {
+    throw new Error('Date must be in the future');
+  }
+
+  return date;
+}
+
 module.exports = {
-  parseNaturalDate
+  parseNaturalDate,
+  validateFutureDate
 };

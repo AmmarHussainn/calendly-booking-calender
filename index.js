@@ -1,3 +1,4 @@
+const { toZonedTime, zonedTimeToUtc } = require('date-fns-tz');
 require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -51,20 +52,29 @@ app.post('/api/book', async (req, res) => {
     const { eventTypeUri, user, timezone = 'UTC', preferredTime } = req.body;
     const calendly = new CalendlyService(storage.tokens.accessToken);
 
+    // Debug log the raw input
+    console.log('Raw input:', { preferredTime, timezone });
+
     let availability;
     let parsedPreferred;
     
     if (preferredTime) {
       try {
-        // Parse with proper timezone handling
+        // Parse with timezone handling
         parsedPreferred = parseNaturalDate(preferredTime, timezone);
-        
-        // Get availability starting from the parsed time
+        console.log('Parsed time:', parsedPreferred);
+
         availability = await calendly.getAvailability(
           eventTypeUri, 
           parsedPreferred.iso, 
           timezone
         );
+
+        // Debug log availability
+        console.log('Availability:', availability.map(slot => ({
+          start: slot.start_time,
+          local: new Date(slot.start_time).toLocaleString('en-US', { timeZone: timezone })
+        })));
 
         // Find matching slot (30-minute window)
         const matchingSlot = availability.find(slot => {
@@ -77,32 +87,23 @@ app.post('/api/book', async (req, res) => {
           return res.status(400).json({
             status: 'time_unavailable',
             message: 'Your preferred time is not available',
-            requested_time: format(new Date(parsedPreferred.iso), 'MMM d, yyyy, h:mm a', {
-              timeZone: timezone
-            }),
+            requested_time: formatInTimezone(new Date(parsedPreferred.iso), timezone),
             available_slots: availability.map(slot => ({
-              date: format(new Date(slot.start_time), 'MMM d, yyyy', { timeZone: timezone }),
-              time: format(new Date(slot.start_time), 'h:mm a', { timeZone: timezone }),
+              date: formatInTimezone(new Date(slot.start_time), timezone, 'date'),
+              time: formatInTimezone(new Date(slot.start_time), timezone, 'time'),
               iso: slot.start_time,
               timezone
             }))
           });
         }
 
-        // If we found a matching slot, proceed with booking
-        const booking = await calendly.bookAppointment(
-          eventTypeUri, 
-          user, 
-          timezone
-        );
-        
+        // Create booking
+        const booking = await calendly.bookAppointment(eventTypeUri, user, timezone);
         return res.json({
           status: 'confirmation_required',
           booking_url: booking.booking_url,
           confirmed_time: {
-            formatted: format(new Date(parsedPreferred.iso), 'MMM d, yyyy, h:mm a', {
-              timeZone: timezone
-            }),
+            formatted: formatInTimezone(new Date(parsedPreferred.iso), timezone),
             iso: parsedPreferred.iso,
             timezone
           },
@@ -110,20 +111,17 @@ app.post('/api/book', async (req, res) => {
         });
 
       } catch (parseError) {
+        console.error('Parse error:', parseError);
         return res.status(400).json({
-          error: parseError.message,
-          details: 'Please provide a valid future date/time like "July 15 7am" or "tomorrow 2pm"'
+          error: parseError.response.data.message,
+          details: parseError.response.data.details,
         });
       }
     }
 
-    // Default flow when no preferredTime is specified
-    availability = await calendly.getAvailability(
-      eventTypeUri, 
-      'tomorrow 9am', 
-      timezone
-    );
-
+    // Default flow (no preferred time)
+    availability = await calendly.getAvailability(eventTypeUri, 'tomorrow 9am', timezone);
+    
     if (availability.length === 0) {
       const waitlistResult = await calendly.addToWaitlist(eventTypeUri, user);
       return res.json({
@@ -134,18 +132,14 @@ app.post('/api/book', async (req, res) => {
       });
     }
 
-    const booking = await calendly.bookAppointment(
-      eventTypeUri, 
-      user, 
-      timezone
-    );
+    const booking = await calendly.bookAppointment(eventTypeUri, user, timezone);
     
     res.json({
       status: 'confirmation_required',
       booking_url: booking.booking_url,
       available_slots: availability.map(slot => ({
-        date: format(new Date(slot.start_time), 'MMM d, yyyy', { timeZone: timezone }),
-        time: format(new Date(slot.start_time), 'h:mm a', { timeZone: timezone }),
+        date: formatInTimezone(new Date(slot.start_time), timezone, 'date'),
+        time: formatInTimezone(new Date(slot.start_time), timezone, 'time'),
         iso: slot.start_time,
         timezone
       })),
@@ -156,10 +150,30 @@ app.post('/api/book', async (req, res) => {
     console.error('Booking error:', error);
     res.status(500).json({
       error: error.message,
-      details: error.response?.data || null
+      details: error.response?.data || null,
     });
   }
 });
+
+// Helper function for consistent formatting
+function formatInTimezone(date, timezone, type = 'full') {
+  const zonedDate = toZonedTime(date, timezone);
+  return type === 'date'
+    ? format(zonedDate, 'MMM d, yyyy')
+    : type === 'time'
+      ? format(zonedDate, 'h:mm a')
+      : format(zonedDate, 'MMM d, yyyy, h:mm a');
+}
+
+
+
+
+
+
+
+
+
+
 // 3. Webhook Handling
 app.post('/webhooks/confirmations', (req, res) => {
   try {
