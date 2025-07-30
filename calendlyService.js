@@ -14,15 +14,15 @@ class CalendlyService {
     });
   }
 
-async getAvailability(eventTypeUri, dateInput, timezone = 'UTC') {
+  async getAvailability(eventTypeUri, dateInput, timezone = 'UTC') {
     let startTime;
-    
+
     try {
       // Handle both natural language and ISO dates
-      const parsedDate = typeof dateInput === 'string' 
+      const parsedDate = typeof dateInput === 'string'
         ? parseNaturalDate(dateInput, timezone)
         : { iso: new Date(dateInput).toISOString() };
-      
+
       startTime = validateFutureDate(new Date(parsedDate.iso)).toISOString();
     } catch (error) {
       throw new Error(`Invalid date: ${error.message}`);
@@ -44,31 +44,42 @@ async getAvailability(eventTypeUri, dateInput, timezone = 'UTC') {
   // Direct booking with webhook registration
   async bookAppointment(eventTypeUri, invitee, timezone = 'UTC') {
     const eventUuid = eventTypeUri.split('/').pop();
-    
+
     // 1. Create scheduling link
     const { data: { resource: schedulingLink } } = await this.client.post('/scheduling_links', {
       max_event_count: 1,
       owner: eventTypeUri,
       owner_type: 'EventType'
     });
-
     // 2. Register webhook for confirmation
     await this.registerWebhook(eventUuid, invitee.email);
-    
+
+
     return {
       booking_url: schedulingLink.booking_url,
       confirmation_required: true
     };
   }
 
+  async webhookRegistered(url) {
+    const { data } = await this.client.get(`/webhook_subscriptions?organization=${encodeURIComponent(process.env.CALENDLY_ORGANIZATION)}&scope=organization`);
+    return data.collection.some(hook => hook.callback_url === url);
+  }
+
   // Webhook registration with signature verification
   async registerWebhook(eventUuid, email) {
+    const url = `${process.env.BASE_URL}/webhooks/confirmations`;
+    if (await this.webhookRegistered(url)) {
+      // Already registered, skip or update as needed
+      return;
+    }
     await this.client.post('/webhook_subscriptions', {
-      url: `${process.env.BASE_URL}/webhooks/confirmations`,
+      url,
       events: ['invitee.created'],
       scope: 'user',
-      organization: "https://api.calendly.com/organizations/83f76f79-af59-4f64-9ce7-d6f78ff862a9",
-      user: "https://api.calendly.com/users/471265af-302d-42f8-971c-9a37cbd68753",
+      user: process.env.CALENDLY_USER,
+      "scope": "organization",
+      organization: process.env.CALENDLY_ORGANIZATION,
       signing_key: process.env.CALENDLY_WEBHOOK_SIGNING_KEY,
       // metadata: { eventUuid, email }
     });

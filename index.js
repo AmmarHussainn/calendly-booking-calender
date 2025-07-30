@@ -1,4 +1,4 @@
-const { toZonedTime, zonedTimeToUtc } = require('date-fns-tz');
+const { toZonedTime, zonedTimeToUtc, format } = require('date-fns-tz');
 require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -39,7 +39,7 @@ app.get('/auth/callback', async (req, res) => {
     });
 
     storage.tokens.accessToken = data.access_token;
-    res.json({ status: 'authenticated', expires_in: data.expires_in });
+    res.json({ status: 'authenticated', expires_in: data.expires_in, respoonse: data });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -50,14 +50,21 @@ app.get('/auth/callback', async (req, res) => {
 app.post('/api/book', async (req, res) => {
   try {
     const { eventTypeUri, user, timezone = 'UTC', preferredTime } = req.body;
+    // const authHeader = req.headers['authorization'];
+    // if (!authHeader)
+    //   return res.status(401).json({ message: 'Authorization header missing' });
+    // const token = authHeader.split(' ')[1]; // Extracts the token after "Bearer "
+    // if (!token)
+    //   return res.status(401).json({ message: 'Access token missing' });
     const calendly = new CalendlyService(storage.tokens.accessToken);
+    // const calendly = new CalendlyService(token);
 
     // Debug log the raw input
     console.log('Raw input:', { preferredTime, timezone });
 
     let availability;
     let parsedPreferred;
-    
+
     if (preferredTime) {
       try {
         // Parse with timezone handling
@@ -65,8 +72,8 @@ app.post('/api/book', async (req, res) => {
         console.log('Parsed time:', parsedPreferred);
 
         availability = await calendly.getAvailability(
-          eventTypeUri, 
-          parsedPreferred.iso, 
+          eventTypeUri,
+          parsedPreferred.iso,
           timezone
         );
 
@@ -120,31 +127,31 @@ app.post('/api/book', async (req, res) => {
     }
 
     // Default flow (no preferred time)
-    availability = await calendly.getAvailability(eventTypeUri, 'tomorrow 9am', timezone);
-    
-    if (availability.length === 0) {
-      const waitlistResult = await calendly.addToWaitlist(eventTypeUri, user);
-      return res.json({
-        status: 'waitlist',
-        message: 'No available slots. You\'ve been added to our waitlist.',
-        waitlist_id: waitlistResult.data.id,
-        next_check_date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
-      });
-    }
+    // availability = await calendly.getAvailability(eventTypeUri, 'tomorrow 9am', timezone);
 
-    const booking = await calendly.bookAppointment(eventTypeUri, user, timezone);
-    
-    res.json({
-      status: 'confirmation_required',
-      booking_url: booking.booking_url,
-      available_slots: availability.map(slot => ({
-        date: formatInTimezone(new Date(slot.start_time), timezone, 'date'),
-        time: formatInTimezone(new Date(slot.start_time), timezone, 'time'),
-        iso: slot.start_time,
-        timezone
-      })),
-      expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString()
-    });
+    // if (availability.length === 0) {
+    //   const waitlistResult = await calendly.addToWaitlist(eventTypeUri, user);
+    //   return res.json({
+    //     status: 'waitlist',
+    //     message: 'No available slots. You\'ve been added to our waitlist.',
+    //     waitlist_id: waitlistResult.data.id,
+    //     next_check_date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+    //   });
+    // }
+
+    // const booking = await calendly.bookAppointment(eventTypeUri, user, timezone);
+
+    // res.json({
+    //   status: 'confirmation_required',
+    //   booking_url: booking.booking_url,
+    //   available_slots: availability.map(slot => ({
+    //     date: formatInTimezone(new Date(slot.start_time), timezone, 'date'),
+    //     time: formatInTimezone(new Date(slot.start_time), timezone, 'time'),
+    //     iso: slot.start_time,
+    //     timezone
+    //   })),
+    //   expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString()
+    // });
 
   } catch (error) {
     console.error('Booking error:', error);
