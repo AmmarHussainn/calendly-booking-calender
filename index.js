@@ -1,14 +1,20 @@
 const { toZonedTime, zonedTimeToUtc, format } = require('date-fns-tz');
-require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
 const crypto = require('crypto');
 const axios = require('axios');
 const CalendlyService = require('./calendlyService');
 const { parseNaturalDate } = require('./utils/dateParser');
+const { createClient } = require('redis');
+
+require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// const client = createClient();
+// client.on('error', err => console.error('Redis Client Error', err));
+// client.connect().then(() => console.log("Redis Client connected!")).catch(err => console.error("Redis Client connection error:", err));
 
 app.use(bodyParser.json());
 app.use(express.static('public'));
@@ -44,8 +50,6 @@ app.get('/auth/callback', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-
-
 
 app.post('/api/book', async (req, res) => {
   try {
@@ -126,33 +130,6 @@ app.post('/api/book', async (req, res) => {
       }
     }
 
-    // Default flow (no preferred time)
-    // availability = await calendly.getAvailability(eventTypeUri, 'tomorrow 9am', timezone);
-
-    // if (availability.length === 0) {
-    //   const waitlistResult = await calendly.addToWaitlist(eventTypeUri, user);
-    //   return res.json({
-    //     status: 'waitlist',
-    //     message: 'No available slots. You\'ve been added to our waitlist.',
-    //     waitlist_id: waitlistResult.data.id,
-    //     next_check_date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
-    //   });
-    // }
-
-    // const booking = await calendly.bookAppointment(eventTypeUri, user, timezone);
-
-    // res.json({
-    //   status: 'confirmation_required',
-    //   booking_url: booking.booking_url,
-    //   available_slots: availability.map(slot => ({
-    //     date: formatInTimezone(new Date(slot.start_time), timezone, 'date'),
-    //     time: formatInTimezone(new Date(slot.start_time), timezone, 'time'),
-    //     iso: slot.start_time,
-    //     timezone
-    //   })),
-    //   expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString()
-    // });
-
   } catch (error) {
     console.error('Booking error:', error);
     res.status(500).json({
@@ -171,15 +148,6 @@ function formatInTimezone(date, timezone, type = 'full') {
       ? format(zonedDate, 'h:mm a')
       : format(zonedDate, 'MMM d, yyyy, h:mm a');
 }
-
-
-
-
-
-
-
-
-
 
 // 3. Webhook Handling
 app.post('/webhooks/confirmations', (req, res) => {
