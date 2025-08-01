@@ -6,6 +6,7 @@ const axios = require('axios');
 const CalendlyService = require('./calendlyService');
 const { parseNaturalDate } = require('./utils/dateParser');
 const { createClient } = require('redis');
+const { Retell } = require('retell-sdk');
 
 require('dotenv').config();
 
@@ -25,6 +26,17 @@ const storage = {
   waitlists: new Map(),
   webhooks: new Map()
 };
+
+// Test connection to Calendly API
+app.get('/', async (req, res) => {
+  try {
+    const calendly = new CalendlyService();
+    const userInfo = await calendly.testConnection();
+    res.json({ status: 'connected', user: userInfo });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+})
 
 // 1. Authentication Endpoints
 app.get('/auth/calendly', (req, res) => {
@@ -52,16 +64,21 @@ app.get('/auth/callback', async (req, res) => {
 });
 
 app.post('/api/book', async (req, res) => {
+  // if (
+  //   Retell.verify(
+  //     JSON.stringify(req.body),
+  //     process.env.RETELL_API_KEY,
+  //     req.headers["x-retell-signature"],
+  //   )
+  // ) {
+  //   console.log("Request from Retell");
+  // } else { console.log("Testing request.") }
   try {
-    const { eventTypeUri, user, timezone = 'UTC', preferredTime } = req.body;
-    // const authHeader = req.headers['authorization'];
-    // if (!authHeader)
-    //   return res.status(401).json({ message: 'Authorization header missing' });
-    // const token = authHeader.split(' ')[1]; // Extracts the token after "Bearer "
-    // if (!token)
-    //   return res.status(401).json({ message: 'Access token missing' });
-    const calendly = new CalendlyService(storage.tokens.accessToken);
-    // const calendly = new CalendlyService(token);
+    const payload = req.body.args;
+    console.log(payload.user);
+    const { user, timezone = 'UTC', preferredTime } = payload;
+    const eventTypeUri = "https://api.calendly.com/event_types/a29eec9f-71cc-415f-8267-aaed22b91d78";
+    const calendly = new CalendlyService();
 
     // Debug log the raw input
     console.log('Raw input:', { preferredTime, timezone });
@@ -73,19 +90,13 @@ app.post('/api/book', async (req, res) => {
       try {
         // Parse with timezone handling
         parsedPreferred = parseNaturalDate(preferredTime, timezone);
-        console.log('Parsed time:', parsedPreferred);
+        // console.log('Parsed time:', parsedPreferred);
 
         availability = await calendly.getAvailability(
           eventTypeUri,
           parsedPreferred.iso,
           timezone
         );
-
-        // Debug log availability
-        console.log('Availability:', availability.map(slot => ({
-          start: slot.start_time,
-          local: new Date(slot.start_time).toLocaleString('en-US', { timeZone: timezone })
-        })));
 
         // Find matching slot (30-minute window)
         const matchingSlot = availability.find(slot => {
@@ -124,8 +135,8 @@ app.post('/api/book', async (req, res) => {
       } catch (parseError) {
         console.error('Parse error:', parseError);
         return res.status(400).json({
-          error: parseError.response.data.message,
-          details: parseError.response.data.details,
+          error: parseError?.response?.data || parseError,
+          details: parseError?.response && parseError.response.data.details,
         });
       }
     }
@@ -138,16 +149,6 @@ app.post('/api/book', async (req, res) => {
     });
   }
 });
-
-// Helper function for consistent formatting
-function formatInTimezone(date, timezone, type = 'full') {
-  const zonedDate = toZonedTime(date, timezone);
-  return type === 'date'
-    ? format(zonedDate, 'MMM d, yyyy')
-    : type === 'time'
-      ? format(zonedDate, 'h:mm a')
-      : format(zonedDate, 'MMM d, yyyy, h:mm a');
-}
 
 // 3. Webhook Handling
 app.post('/webhooks/confirmations', (req, res) => {
@@ -180,7 +181,7 @@ app.post('/webhooks/confirmations', (req, res) => {
 // 4. Admin Endpoints
 app.post('/api/email-templates', async (req, res) => {
   try {
-    const calendly = new CalendlyService(storage.tokens.accessToken);
+    const calendly = new CalendlyService();
     const result = await calendly.setEmailTemplate(
       req.body.eventTypeUri,
       {
@@ -202,6 +203,16 @@ app.get('/api/waitlist/:eventType', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// Helper function for consistent formatting
+function formatInTimezone(date, timezone, type = 'full') {
+  const zonedDate = toZonedTime(date, timezone);
+  return type === 'date'
+    ? format(zonedDate, 'MMM d, yyyy')
+    : type === 'time'
+      ? format(zonedDate, 'h:mm a')
+      : format(zonedDate, 'MMM d, yyyy, h:mm a');
+}
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);

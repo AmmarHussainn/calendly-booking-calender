@@ -4,14 +4,21 @@ const { parseNaturalDate, validateFutureDate } = require('./utils/dateParser');
 require('dotenv').config();
 
 class CalendlyService {
-    constructor(accessToken) {
+    constructor(accessToken = "") {
+        this.pat = process.env.CALENDLY_PAT;
         this.client = axios.create({
             baseURL: 'https://api.calendly.com',
             headers: {
-                'Authorization': `Bearer ${accessToken}`,
+                'Authorization': `Bearer ${this.pat}`,
                 'Content-Type': 'application/json'
             }
         });
+    }
+
+    async testConnection() {
+        // We will test if Calendly API is reachable by fetching the user info
+        const response = await this.client.get('/users/me');
+        return response.data.resource;
     }
 
     async getAvailability(eventTypeUri, dateInput, timezone = 'UTC') {
